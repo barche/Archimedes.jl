@@ -19,7 +19,8 @@ export Point2D,
        corners,
        labeled_point,
        buoyancycenter,
-       toship
+       toship,
+       isocarene
 
 immutable Point2D
     x::typeof(1.0u"m")
@@ -116,6 +117,12 @@ function draw(p::PointMass, mapping::CoordMapping; hue="black")
   text("m = $(mass(p))", Point(c.x,c.y+r+spacing+2*step), halign=:center, valign=:top)
 end
 
+function draw(p::Point2D, mapping::CoordMapping, r=5.0; hue="black")
+  sethue(hue)
+  c = remap(p,mapping)
+  circle(c, r, :fill)
+end
+
 """
 Shows the drawing and removes the temp file
 """
@@ -131,55 +138,64 @@ immutable BoxShip
   draft::typeof(1.0u"m")
   KG::typeof(1.0u"m")
   heel::Float64
+  vshift::typeof(1.0u"m")
+
+  BoxShip(width, height, draft, KG, heel=0.0, vshift=0.0u"m") = new(width,height,draft,KG,heel,vshift)
 end
 
-rotmat(s::BoxShip) = [cos(s.heel) -sin(s.heel); sin(s.heel) cos(s.heel)]
+forward_trans(p, s::BoxShip) = Point2D(cos(s.heel)*getx(p) - sin(s.heel)*gety(p),  sin(s.heel)*getx(p) + cos(s.heel)*gety(p) + s.vshift)
+inverse_trans(p, s::BoxShip) = Point2D(cos(s.heel)*getx(p) + sin(s.heel)*(gety(p) - s.vshift), -sin(s.heel)*getx(p) + cos(s.heel)*(gety(p) - s.vshift))
 
 """
 Convert position p to ship coordinates
 """
-function toship(p, s)
-  rmat = rotmat(s)
-  rmat[1,2] = -rmat[1,2]
-  rmat[2,1] = -rmat[2,1]
-  return Point2D((rmat*[getx(p), gety(p)])...)
-end
+toship(p, s) = inverse_trans(p, s)
 
 function corners(s::BoxShip)
-  rotm = rotmat(s)
   x = s.width/2
   ymax = s.height-s.draft
   ymin = -s.draft
-  points = rotm*[-x x x -x; ymin ymin ymax ymax]
-  return Point2D.(points[1,:], points[2,:])
+  return forward_trans.(Point2D.([-x,x,x,-x], [ymin,ymin,ymax,ymax]), s)
 end
 
 function waterline(s::BoxShip)
   x = 1.4*s.width/2
   y = 0.0u"m"
-  return (Point2D(-x,y), Point2D(x,y))
+  return (Point2D(-x,y), Point2D(x,y), Point2D(0.0u"m",y))
 end
 
 function gravitycenter(s::BoxShip)
-  g_coords = rotmat(s)*[0.0u"m", s.KG-s.draft]
-  return Point2D(g_coords...)
+  return forward_trans(Point2D(0.0u"m", s.KG-s.draft), s)
 end
 
 bbox(s::BoxShip) = 1.4 .* (-s.width/2, s.width/2, -s.draft, s.height-s.draft)
+
+function wl_intersect(p1, p2)
+  x1 = getx(p1)
+  y1 = gety(p1)
+  x2 = getx(p2)
+  y2 = gety(p2)
+  r = (x2-x1)/(y2-y1)
+  return Point2D(-y1*r+x1, 0.0u"m")
+end
 
 """
 Corners of the underwater part
 """
 function carene(s::BoxShip)
   ship_pts = corners(s)
-  x1 = getx(ship_pts[4])
-  y1 = gety(ship_pts[4])
-  x2 = getx(ship_pts[1])
-  y2 = gety(ship_pts[1])
-  r = (x2-x1)/(y2-y1)
-  wl_left = Point2D(-y1*r+x1, 0.0u"m")
-  wl_right = Point2D(-gety(ship_pts[3])*r+getx(ship_pts[3]), 0.0u"m")
-  return (ship_pts[1], ship_pts[2], wl_right, wl_left)
+  N = length(ship_pts)
+  pts_above = collect(Iterators.filter((p) -> gety(p[2]) > 0u"m", enumerate(ship_pts)))
+  sort!(pts_above, lt = (a,b) -> getx(a[2]) < getx(b[2]))
+  l1 = pts_above[1][1]
+  l2 = l1 % N + 1
+  wl_left = wl_intersect(ship_pts[l1], ship_pts[l2])
+  r1 = pts_above[end][1]
+  r2 = (r1 - 2 + N) % N + 1
+  wl_right = wl_intersect(ship_pts[r1], ship_pts[r2])
+  pts_below = collect(Iterators.filter((p) -> gety(p[2]) < 0u"m", enumerate(ship_pts)))
+  sort!(pts_below, lt = (a,b) -> getx(a[2]) < getx(b[2]))
+  return (getindex.(pts_below, 2)..., wl_right, wl_left)
 end
 
 """
@@ -195,14 +211,19 @@ function area(pts)
   return abs(cross(v[3]-v[1], v[2]-v[1])[3])/2
 end
 
+function triangulate(pts::Union{AbstractArray{ET},NTuple{N,ET} where N}) where ET
+  c = centroid(pts)
+  triags = Array{NTuple{3,ET}}(length(pts))
+  N = length(pts)
+  for i in linearindices(pts)
+    triags[i] = (c, pts[i], pts[i%N+1])
+  end
+  return triags
+end
+
 function buoyancycenter(s::BoxShip)
   trap = carene(s)
-  c = centroid(trap)
-  triags = []
-  N = length(trap)
-  for i in linearindices(trap)
-    push!(triags, [c, trap[i], trap[i%N+1]])
-  end
+  triags = triangulate(trap)
   areas = area.(triags)
   centroids = centroid.(triags)
   A = sum(areas)
@@ -211,6 +232,34 @@ function buoyancycenter(s::BoxShip)
   return Point2D(x,y)
 end
 
+function carene_area(s::BoxShip)
+  trap = carene(s)
+  triags = triangulate(trap)
+  return sum(area.(triags))
+end
+
+function isocarene(s0, θ)
+  θ0 = s0.heel
+  T = s0.draft
+  DT_l = -T
+  DT_u = T
+  A0 = carene_area(s0)
+  for i in 1:50
+    DT = (DT_u+DT_l)/2
+    s1 = BoxShip(s0.width, s0.height, T, s0.KG, θ+θ0, DT)
+    A1 = carene_area(s1)
+    if abs(A1-A0)/A0 < 1e-8
+      return s1
+    end
+
+    if A1 < A0
+      DT_u = DT
+    else
+      DT_l = DT
+    end
+  end
+  error("isocarene did not converge")
+end
 
 function labeled_point(p, label, hue="black", radius=5.0)
   sethue(hue)
@@ -218,7 +267,7 @@ function labeled_point(p, label, hue="black", radius=5.0)
   text(label, Point(p.x+1.2*radius,p.y+1.2*radius), halign=:center, valign=:top)
 end
 
-function draw(s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p))
+function draw(m::CoordMapping, s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p))
   ship_pts = transformation.(corners(s),s)
   m = drawing(bbox(s), figwidth)
   p = remap.(ship_pts, m)
@@ -226,12 +275,19 @@ function draw(s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p))
   line(p[1], p[2], :stroke)
   line(p[2], p[3], :stroke)
   line(p[4], p[1], :stroke)
+  sethue("darkgrey")
+  line(p[3], p[4], :stroke)
   labeled_point(remap(transformation(gravitycenter(s),s),m), "G")
   labeled_point(remap(transformation(buoyancycenter(s),s),m), "B", "red")
   wl = remap.(transformation.(waterline(s),s), m)
   sethue("blue")
   line(wl[1], wl[2], :stroke)
+  labeled_point(wl[3], "F", "blue")
   return m
+end
+
+function draw(s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p))
+  draw(drawing(bbox(s), figwidth), s, figwidth, transformation)
 end
 
 end # module

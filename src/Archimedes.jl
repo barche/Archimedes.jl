@@ -20,7 +20,8 @@ export Point2D,
        labeled_point,
        buoyancycenter,
        toship,
-       isocarene
+       isocarene,
+       metacenter
 
 immutable Point2D
     x::typeof(1.0u"m")
@@ -28,6 +29,12 @@ immutable Point2D
 end
 getx(p::Point2D) = p.x
 gety(p::Point2D) = p.y
+Base.:-(a::Point2D, b::Point2D) = Point2D(a.x-b.x, a.y-b.y)
+Base.:+(a::Point2D, b::Point2D) = Point2D(a.x+b.x, a.y+b.y)
+Base.:*(a::Point2D, b::Number) = Point2D(a.x*b, a.y*b)
+Base.:*(b::Number, a::Point2D) = Point2D(a.x*b, a.y*b)
+Base.:/(a::Point2D, b::Number) = Point2D(a.x/b, a.y/b)
+Base.norm(a::Point2D) = sqrt(a.x^2 + a.y^2)
 
 immutable PointMass
     coordinates::Point2D
@@ -161,7 +168,7 @@ end
 function waterline(s::BoxShip)
   x = 1.4*s.width/2
   y = 0.0u"m"
-  return (Point2D(-x,y), Point2D(x,y), Point2D(0.0u"m",y))
+  return (Point2D(-x,y), Point2D(x,y))
 end
 
 function gravitycenter(s::BoxShip)
@@ -196,6 +203,17 @@ function carene(s::BoxShip)
   pts_below = collect(Iterators.filter((p) -> gety(p[2]) < 0u"m", enumerate(ship_pts)))
   sort!(pts_below, lt = (a,b) -> getx(a[2]) < getx(b[2]))
   return (getindex.(pts_below, 2)..., wl_right, wl_left)
+end
+
+function metacenter(s::BoxShip)
+  trap = carene(s)
+  w_wl = getx(trap[end-1]) - getx(trap[end])
+  F = toship(Point2D((getx(trap[end-1]) + getx(trap[end]))/2, 0.0u"m"),s)
+  BM = (w_wl^3 / 12)/carene_area(s)
+  B = toship(buoyancycenter(s),s)
+  nvec = F - B
+  Mship = B + Point2D(BM*sin(s.heel), BM*cos(s.heel))
+  return forward_trans(Mship, s)
 end
 
 """
@@ -267,9 +285,8 @@ function labeled_point(p, label, hue="black", radius=5.0)
   text(label, Point(p.x+1.2*radius,p.y+1.2*radius), halign=:center, valign=:top)
 end
 
-function draw(m::CoordMapping, s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p))
+function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p))
   ship_pts = transformation.(corners(s),s)
-  m = drawing(bbox(s), figwidth)
   p = remap.(ship_pts, m)
   sethue("black")
   line(p[1], p[2], :stroke)
@@ -277,17 +294,25 @@ function draw(m::CoordMapping, s::BoxShip, figwidth=300, transformation=((p,::Bo
   line(p[4], p[1], :stroke)
   sethue("darkgrey")
   line(p[3], p[4], :stroke)
+  M = remap(transformation(metacenter(s),s),m)
+  B = remap(transformation(buoyancycenter(s),s),m)
   labeled_point(remap(transformation(gravitycenter(s),s),m), "G")
-  labeled_point(remap(transformation(buoyancycenter(s),s),m), "B", "red")
+  labeled_point(M, "M")
+  labeled_point(B, "B", "red")
+  setdash("dot")
+  line(M, B, :stroke)
+  setdash("solid")
   wl = remap.(transformation.(waterline(s),s), m)
   sethue("blue")
   line(wl[1], wl[2], :stroke)
-  labeled_point(wl[3], "F", "blue")
+  #trap = carene(s)
+  #F = remap(transformation(Point2D((getx(trap[end-1]) + getx(trap[end]))/2, 0.0u"m"),s),m)
+  #labeled_point(F, "F", "blue")
   return m
 end
 
 function draw(s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p))
-  draw(drawing(bbox(s), figwidth), s, figwidth, transformation)
+  draw(drawing(bbox(s), figwidth), s, transformation)
 end
 
 end # module

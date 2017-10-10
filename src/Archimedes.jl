@@ -21,7 +21,8 @@ export Point2D,
        buoyancycenter,
        toship,
        isocarene,
-       metacenter
+       metacenter,
+       setopacity
 
 immutable Point2D
     x::typeof(1.0u"m")
@@ -135,8 +136,9 @@ Shows the drawing and removes the temp file
 """
 function show_drawing()
   finish()
-  preview()
-  rm(tempfile)
+  return Luxor.currentdrawing
+  #preview()
+  #rm(tempfile)
 end
 
 immutable BoxShip
@@ -156,7 +158,7 @@ inverse_trans(p, s::BoxShip) = Point2D(cos(s.heel)*getx(p) + sin(s.heel)*(gety(p
 """
 Convert position p to ship coordinates
 """
-toship(p, s) = inverse_trans(p, s)
+toship(p, s) = inverse_trans(p, s) - Point2D(0.0u"m", s.height/2 - s.draft)
 
 function corners(s::BoxShip)
   x = s.width/2
@@ -208,9 +210,9 @@ end
 function metacenter(s::BoxShip)
   trap = carene(s)
   w_wl = getx(trap[end-1]) - getx(trap[end])
-  F = toship(Point2D((getx(trap[end-1]) + getx(trap[end]))/2, 0.0u"m"),s)
+  F = inverse_trans(Point2D((getx(trap[end-1]) + getx(trap[end]))/2, 0.0u"m"),s)
   BM = (w_wl^3 / 12)/carene_area(s)
-  B = toship(buoyancycenter(s),s)
+  B = inverse_trans(buoyancycenter(s),s)
   nvec = F - B
   Mship = B + Point2D(BM*sin(s.heel), BM*cos(s.heel))
   return forward_trans(Mship, s)
@@ -285,7 +287,7 @@ function labeled_point(p, label, hue="black", radius=5.0)
   text(label, Point(p.x+1.2*radius,p.y+1.2*radius), halign=:center, valign=:top)
 end
 
-function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p))
+function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p); showM=true, showB=true;)
   ship_pts = transformation.(corners(s),s)
   p = remap.(ship_pts, m)
   sethue("black")
@@ -294,14 +296,22 @@ function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p))
   line(p[4], p[1], :stroke)
   sethue("darkgrey")
   line(p[3], p[4], :stroke)
-  M = remap(transformation(metacenter(s),s),m)
-  B = remap(transformation(buoyancycenter(s),s),m)
   labeled_point(remap(transformation(gravitycenter(s),s),m), "G")
-  labeled_point(M, "M")
-  labeled_point(B, "B", "red")
-  setdash("dot")
-  line(M, B, :stroke)
-  setdash("solid")
+  if showM || showB
+    M = remap(transformation(metacenter(s),s),m)
+    B = remap(transformation(buoyancycenter(s),s),m)
+    if showM
+      labeled_point(M, "M")
+    end
+    if showB
+      labeled_point(B, "B", "red")
+    end
+    if showM && showB
+      setdash("dot")
+      line(M, B, :stroke)
+      setdash("solid")
+    end
+  end
   wl = remap.(transformation.(waterline(s),s), m)
   sethue("blue")
   line(wl[1], wl[2], :stroke)
@@ -311,8 +321,10 @@ function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p))
   return m
 end
 
-function draw(s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p))
-  draw(drawing(bbox(s), figwidth), s, transformation)
+function draw(s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p); showM=true, showB=true;)
+  draw(drawing(bbox(s), figwidth), s, transformation, showM=showM, showB=showB)
 end
+
+setopacity = Luxor.setopacity
 
 end # module

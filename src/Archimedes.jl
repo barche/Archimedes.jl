@@ -22,7 +22,8 @@ export Point2D,
        toship,
        isocarene,
        metacenter,
-       setopacity
+       setopacity,
+       puttext
 
 immutable Point2D
     x::typeof(1.0u"m")
@@ -92,9 +93,6 @@ function remap(p, mapping)
   return Luxor.Point(((getx(p)-xoff, -(gety(p)-yoff)).*mapping.scaling)...)
 end
 
-# filename for the SVG temp file
-const tempfile = "_archimedes_drawing.svg"
-
 """
 Initialize a drawing, returing the point mapping
 """
@@ -104,10 +102,16 @@ function drawing(bbox, figwidth=300)
   figheight = figwidth/ar
   margin = 30
   bottom_padding = 40
-  d = Drawing(figwidth+2*margin, figheight+2*margin+bottom_padding, tempfile)
+  d = Drawing(figwidth+2*margin, figheight+2*margin+bottom_padding, :svg)
   origin()
   background("white")
   return CoordMapping(figwidth, bbox)
+end
+
+function puttext(txt, p::Point2D, mapping::CoordMapping)
+  sethue("black")
+  c = remap(p,mapping)
+  text(txt, c, halign=:center, valign=:top)
 end
 
 """
@@ -125,10 +129,13 @@ function draw(p::PointMass, mapping::CoordMapping; hue="black")
   text("m = $(mass(p))", Point(c.x,c.y+r+spacing+2*step), halign=:center, valign=:top)
 end
 
-function draw(p::Point2D, mapping::CoordMapping, r=5.0; hue="black")
+function draw(p::Point2D, mapping::CoordMapping, r=5.0; hue="black", label="")
   sethue(hue)
   c = remap(p,mapping)
   circle(c, r, :fill)
+  if label != ""
+    text(label, Point(c.x+1.2*r,c.y+1.2*r), halign=:center, valign=:top)
+  end
 end
 
 """
@@ -137,8 +144,6 @@ Shows the drawing and removes the temp file
 function show_drawing()
   finish()
   return Luxor.currentdrawing
-  #preview()
-  #rm(tempfile)
 end
 
 immutable BoxShip

@@ -1,5 +1,8 @@
 module Archimedes
 
+using LinearAlgebra
+using Statistics
+
 using Unitful
 using Luxor
 
@@ -25,7 +28,7 @@ export Point2D,
        setopacity,
        puttext
 
-immutable Point2D
+struct Point2D
     x::typeof(1.0u"m")
     y::typeof(1.0u"m")
 end
@@ -36,9 +39,9 @@ Base.:+(a::Point2D, b::Point2D) = Point2D(a.x+b.x, a.y+b.y)
 Base.:*(a::Point2D, b::Number) = Point2D(a.x*b, a.y*b)
 Base.:*(b::Number, a::Point2D) = Point2D(a.x*b, a.y*b)
 Base.:/(a::Point2D, b::Number) = Point2D(a.x/b, a.y/b)
-Base.norm(a::Point2D) = sqrt(a.x^2 + a.y^2)
+LinearAlgebra.norm(a::Point2D) = sqrt(a.x^2 + a.y^2)
 
-immutable PointMass
+struct PointMass
     coordinates::Point2D
     mass::typeof(1.0u"kg")
     radius::typeof(1.0u"m")
@@ -74,7 +77,7 @@ end
 """
 Helper to map the points with units to pixel-coordinates
 """
-immutable CoordMapping
+struct CoordMapping
   origin::Point2D
   scaling::typeof(1.0/(1.0u"m"))
 end
@@ -99,10 +102,10 @@ Initialize a drawing, returing the point mapping
 function drawing(bbox, figwidth=300)
   (xmin,xmax,ymin,ymax) = bbox
   ar = (xmax-xmin)/(ymax-ymin)
-  figheight = figwidth/ar
+  figheight = Int(round(figwidth/ar))
   margin = 30
   bottom_padding = 40
-  d = Drawing(figwidth+2*margin, figheight+2*margin+bottom_padding, :svg)
+  d = Drawing(figwidth+2*margin, figheight+2*margin+bottom_padding, "svg")
   origin()
   background("white")
   return CoordMapping(figwidth, bbox)
@@ -146,7 +149,7 @@ function show_drawing()
   return Luxor.currentdrawing
 end
 
-immutable BoxShip
+struct BoxShip
   width::typeof(1.0u"m")
   height::typeof(1.0u"m")
   draft::typeof(1.0u"m")
@@ -169,7 +172,7 @@ function corners(s::BoxShip)
   x = s.width/2
   ymax = s.height-s.draft
   ymin = -s.draft
-  return forward_trans.(Point2D.([-x,x,x,-x], [ymin,ymin,ymax,ymax]), s)
+  return forward_trans.(Point2D.([-x,x,x,-x], [ymin,ymin,ymax,ymax]), Ref(s))
 end
 
 function waterline(s::BoxShip)
@@ -292,7 +295,7 @@ function labeled_point(p, label, hue="black", radius=5.0)
   text(label, Point(p.x+1.2*radius,p.y+1.2*radius), halign=:center, valign=:top)
 end
 
-function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p); showM=true, showB=true;)
+function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p); showM=true, showB=true)
   ship_pts = transformation.(corners(s),s)
   p = remap.(ship_pts, m)
   sethue("black")
@@ -326,7 +329,7 @@ function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p); 
   return m
 end
 
-function draw(s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p); showM=true, showB=true;)
+function draw(s::BoxShip, figwidth=300, transformation=((p,::BoxShip) -> p); showM=true, showB=true)
   draw(drawing(bbox(s), figwidth), s, transformation, showM=showM, showB=showB)
 end
 

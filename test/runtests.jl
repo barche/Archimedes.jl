@@ -1,5 +1,5 @@
 using Archimedes
-using Base.Test
+using Test
 
 using Unitful: m, kg
 
@@ -10,13 +10,13 @@ using Unitful: m, kg
   @test gety(pm) == 2m
   @test radius(pm) == 0.5m
   
-  const N = 4
-  masses = PointMass.(linspace(1.0m, 4.0m, N), fill(0m, N), fill(1kg, N), fill(1m, N))
+  N = 4
+  masses = PointMass.(range(1.0m, stop=4.0m, length=N), fill(0m, N), fill(1kg, N), fill(1m, N))
   @test bbox(masses) == (1.0m, 4.0m, 0.0m, 0.0m)
   @test centroid(masses) == Point2D(2.5m, 0.0m)
   @test gravitycenter(masses) == PointMass(2.5m, 0.0m, 4.0kg, 2.0m)
 
-  const image_width = 300
+  image_width = 300
   mapping = Archimedes.CoordMapping(image_width, bbox(masses))
   luxor_pt = Archimedes.remap(masses[1], mapping)
   @test luxor_pt.x == -150

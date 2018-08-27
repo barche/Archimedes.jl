@@ -6,6 +6,8 @@ using Statistics
 using Unitful
 using Luxor
 
+const _current_luxor_drawing = Ref{Luxor.Drawing}()
+
 export Point2D,
        PointMass,
        mass,
@@ -17,7 +19,7 @@ export Point2D,
        gravitycenter,
        draw,
        drawing,
-       show_drawing,
+       current_drawing,
        BoxShip,
        corners,
        labeled_point,
@@ -105,7 +107,7 @@ function drawing(bbox, figwidth=300)
   figheight = Int(round(figwidth/ar))
   margin = 30
   bottom_padding = 40
-  d = Drawing(figwidth+2*margin, figheight+2*margin+bottom_padding, "svg")
+  _current_luxor_drawing[] = Drawing(figwidth+2*margin, figheight+2*margin+bottom_padding, :svg)
   origin()
   background("white")
   return CoordMapping(figwidth, bbox)
@@ -144,9 +146,9 @@ end
 """
 Shows the drawing and removes the temp file
 """
-function show_drawing()
+function current_drawing()
   finish()
-  return Luxor.currentdrawing
+  return _current_luxor_drawing[]
 end
 
 struct BoxShip
@@ -241,9 +243,9 @@ end
 
 function triangulate(pts::Union{AbstractArray{ET},NTuple{N,ET} where N}) where ET
   c = centroid(pts)
-  triags = Array{NTuple{3,ET}}(length(pts))
+  triags = Array{NTuple{3,ET}}(undef,length(pts))
   N = length(pts)
-  for i in linearindices(pts)
+  for i in 1:length(pts)
     triags[i] = (c, pts[i], pts[i%N+1])
   end
   return triags
@@ -296,8 +298,8 @@ function labeled_point(p, label, hue="black", radius=5.0)
 end
 
 function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p); showM=true, showB=true)
-  ship_pts = transformation.(corners(s),s)
-  p = remap.(ship_pts, m)
+  ship_pts = transformation.(corners(s),Ref(s))
+  p = remap.(ship_pts, Ref(m))
   sethue("black")
   line(p[1], p[2], :stroke)
   line(p[2], p[3], :stroke)
@@ -320,7 +322,7 @@ function draw(m::CoordMapping, s::BoxShip, transformation=((p,::BoxShip) -> p); 
       setdash("solid")
     end
   end
-  wl = remap.(transformation.(waterline(s),s), m)
+  wl = remap.(transformation.(waterline(s),Ref(s)), Ref(m))
   sethue("blue")
   line(wl[1], wl[2], :stroke)
   #trap = carene(s)
